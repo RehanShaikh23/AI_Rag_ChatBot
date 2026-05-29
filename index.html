@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI RAG ChatBot — Intelligent Conversations</title>
+  <meta name="description" content="An intelligent AI chatbot powered by RAG (Retrieval-Augmented Generation) for accurate, context-aware conversations." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <!-- Material Symbols -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="index.css" />
+</head>
+
+<body>
+  <div class="app-shell">
+
+    <!-- ========== Sidebar Overlay (Mobile) ========== -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- ========== Sidebar ========== -->
+    <aside class="sidebar" id="sidebar">
+      <!-- Brand -->
+      <div class="sidebar-brand">
+        <span class="sidebar-brand-name">AI ChatBot</span>
+        <span class="sidebar-badge">RAG</span>
+      </div>
+
+      <!-- Primary Nav -->
+      <nav class="sidebar-nav">
+        <a class="sidebar-nav-link active" id="navNewChat" href="#" data-view="new-chat">
+          <span class="material-symbols-outlined">add</span>
+          <span>New Chat</span>
+        </a>
+        <a class="sidebar-nav-link" id="navHistory" href="#" data-view="history">
+          <span class="material-symbols-outlined">history</span>
+          <span>History</span>
+        </a>
+        <a class="sidebar-nav-link" id="navProjects" href="#" data-view="projects">
+          <span class="material-symbols-outlined">folder</span>
+          <span>Projects</span>
+        </a>
+        <a class="sidebar-nav-link" id="navSettings" href="#" data-view="settings">
+          <span class="material-symbols-outlined">settings</span>
+          <span>Settings</span>
+        </a>
+
+        <!-- Chat History -->
+        <div class="sidebar-history" id="chatHistory">
+          <span class="sidebar-history-label">Recent</span>
+          <a class="sidebar-history-item" href="#">
+            <span class="material-symbols-outlined">chat_bubble_outline</span>
+            <span>Exponential backoff retry logic</span>
+          </a>
+          <a class="sidebar-history-item" href="#">
+            <span class="material-symbols-outlined">chat_bubble_outline</span>
+            <span>RAG pipeline architecture</span>
+          </a>
+          <a class="sidebar-history-item" href="#">
+            <span class="material-symbols-outlined">chat_bubble_outline</span>
+            <span>Vector database comparison</span>
+          </a>
+        </div>
+      </nav>
+
+      <!-- Footer -->
+      <div class="sidebar-footer">
+        <button class="sidebar-upgrade-btn" id="upgradeBtn">
+          Upgrade to Pro
+        </button>
+        <nav class="sidebar-footer-nav">
+          <a class="sidebar-footer-link" href="#">
+            <span class="material-symbols-outlined">help</span>
+            <span>Help &amp; Support</span>
+          </a>
+          <a class="sidebar-footer-link" href="#">
+            <span class="material-symbols-outlined">logout</span>
+            <span>Log out</span>
+          </a>
+        </nav>
+      </div>
+    </aside>
+
+    <!-- ========== Main Content ========== -->
+    <main class="main-content" id="mainContent">
+
+      <!-- Mobile Top Bar -->
+      <header class="topbar-mobile" id="topbarMobile">
+        <button class="topbar-btn" id="btnMenuToggle" aria-label="Toggle sidebar menu">
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <span class="topbar-mobile-brand">AI ChatBot</span>
+        <button class="topbar-btn" id="btnNewChatMobile" aria-label="Start a new chat">
+          <span class="material-symbols-outlined">add</span>
+        </button>
+      </header>
+
+      <!-- ===== VIEW: New Chat (Landing) ===== -->
+      <section class="view-new-chat" id="viewNewChat">
+        <div class="new-chat-container">
+          <!-- Greeting -->
+          <h1 class="greeting-text" id="greetingText">Good afternoon.</h1>
+
+          <!-- Input Area -->
+          <div class="chat-input-landing" id="landingInput">
+            <textarea
+              id="landingTextarea"
+              placeholder="How can I help you today?"
+              rows="2"
+              aria-label="Type your message"
+            ></textarea>
+            <div class="chat-input-actions">
+              <button class="btn-icon" aria-label="Attach a file" id="btnAttachLanding">
+                <span class="material-symbols-outlined">attach_file</span>
+              </button>
+              <button class="btn-send" aria-label="Send message" id="btnSendLanding">
+                <span class="material-symbols-outlined">arrow_upward</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Starter Cards -->
+          <div class="starter-cards" id="starterCards">
+            <div class="starter-card card-primary" data-prompt="Summarize a long document or article into key points.">
+              <div class="starter-card-header">
+                <span class="material-symbols-outlined">description</span>
+                <span>Summarize</span>
+              </div>
+              <p class="starter-card-body">Summarize a long document or article into key points.</p>
+            </div>
+            <div class="starter-card card-info" data-prompt="Write a Python script for data processing.">
+              <div class="starter-card-header">
+                <span class="material-symbols-outlined">code</span>
+                <span>Code</span>
+              </div>
+              <p class="starter-card-body">Write a Python script for data processing.</p>
+            </div>
+            <div class="starter-card card-success" data-prompt="Analyze data sets and extract meaningful insights.">
+              <div class="starter-card-header">
+                <span class="material-symbols-outlined">analytics</span>
+                <span>Analyze</span>
+              </div>
+              <p class="starter-card-body">Analyze data sets and extract meaningful insights.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== VIEW: Active Conversation ===== -->
+      <section class="view-active-chat" id="viewActiveChat">
+        <!-- Message Thread -->
+        <div class="message-thread" id="messageThread">
+          <div class="message-thread-inner" id="messageThreadInner">
+            <!-- Messages are injected by JS -->
+          </div>
+        </div>
+
+        <!-- Sticky Footer Input -->
+        <div class="chat-input-footer">
+          <div class="chat-input-footer-inner">
+            <div class="chat-input-bar" id="chatInputBar">
+              <button class="btn-icon" aria-label="Attach a file" id="btnAttachChat">
+                <span class="material-symbols-outlined">attach_file</span>
+              </button>
+              <textarea
+                id="chatTextarea"
+                placeholder="Reply to AI ChatBot..."
+                rows="1"
+                aria-label="Type your reply"
+              ></textarea>
+              <button class="btn-send" aria-label="Send message" id="btnSendChat">
+                <span class="material-symbols-outlined">arrow_upward</span>
+              </button>
+            </div>
+            <div class="chat-input-disclaimer">
+              AI can make mistakes. Please verify important information.
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
