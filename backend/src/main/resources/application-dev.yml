@@ -1,0 +1,37 @@
+# ============================================================
+# Development Profile — H2 in-memory database
+# Use this when PostgreSQL / Docker is not available.
+# Run with: mvn spring-boot:run "-Dspring-boot.run.profiles=dev"
+# ============================================================
+
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/chatbot;AUTO_SERVER=TRUE
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  sql:
+    init:
+      mode: never
+
+  # Disable PGVector auto-config (H2 doesn't support CREATE EXTENSION)
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.vectorstore.pgvector.autoconfigure.PgVectorStoreAutoConfiguration
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG

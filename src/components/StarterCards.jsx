@@ -1,9 +1,7 @@
-import { starterCards as cardsData } from '../data/responses';
-
-export default function StarterCards({ onCardClick }) {
+export default function StarterCards({ onCardClick, cards }) {
   return (
     <div className="starter-cards">
-      {cardsData.map((card) => (
+      {(cards || []).map((card) => (
         <div
           key={card.id}
           className={`starter-card ${card.colorClass}`}
