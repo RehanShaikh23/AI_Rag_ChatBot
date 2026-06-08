@@ -1101,3 +1101,61 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ============================================================
+   Uploaded Files Indicator
+   ============================================================ */
+.uploaded-files-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  width: 100%;
+  margin-top: var(--space-sm);
+}
+
+.uploaded-files-bar.chat-view {
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  padding: var(--space-sm) var(--space-margin-mobile);
+}
+
+.uploaded-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--on-surface);
+  animation: fadeSlideUp 0.3s ease forwards;
+}
+
+.uploaded-file-chip .material-symbols-outlined {
+  font-size: 16px;
+  color: var(--primary);
+}
+
+.uploaded-file-chip.uploading {
+  color: var(--on-surface-variant);
+  border-style: dashed;
+}
+
+.uploaded-file-chip.uploading .material-symbols-outlined {
+  color: var(--on-surface-variant);
+}
+
+.uploaded-file-check {
+  color: var(--success) !important;
+  font-size: 14px !important;
+}
+
+@keyframes spinning {
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spinning 1s linear infinite;
+}
