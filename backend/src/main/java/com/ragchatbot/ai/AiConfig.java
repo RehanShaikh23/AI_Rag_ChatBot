@@ -1,12 +1,16 @@
 package com.ragchatbot.ai;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 /**
- * Spring AI configuration — sets up ChatClient with NVIDIA NIM backend.
+ * Spring AI configuration — sets up ChatClient with NVIDIA NIM backend
+ * and a custom embedding model that supports NVIDIA's input_type parameter.
  */
 @Configuration
 public class AiConfig {
@@ -30,5 +34,19 @@ public class AiConfig {
         return ChatClient.builder(chatModel)
                 .defaultSystem(SYSTEM_PROMPT)
                 .build();
+    }
+
+    /**
+     * Custom NVIDIA embedding model that adds the required 'input_type' parameter.
+     * Overrides the auto-configured OpenAI embedding model.
+     */
+    @Bean
+    @Primary
+    public EmbeddingModel nvidiaEmbeddingModel(
+            @Value("${spring.ai.openai.base-url}") String baseUrl,
+            @Value("${spring.ai.openai.api-key}") String apiKey,
+            @Value("${spring.ai.openai.embedding.options.model}") String model,
+            @Value("${app.rag.embedding-dimensions:1024}") int dimensions) {
+        return new NvidiaEmbeddingModel(baseUrl, apiKey, model, dimensions);
     }
 }

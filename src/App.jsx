@@ -57,6 +57,8 @@ function ChatApp() {
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [streamingText, setStreamingText] = useState('');
   const [greeting] = useState(getGreeting);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [uploadingFile, setUploadingFile] = useState(null);
 
   const threadRef = useRef(null);
   const abortStreamRef = useRef(null);
@@ -264,10 +266,13 @@ function ChatApp() {
 
   const handleFileUpload = useCallback(async (file) => {
     try {
+      setUploadingFile(file.name);
       await uploadDocument(file);
-      // TODO: show success notification
+      setUploadedFiles((prev) => [...prev, { name: file.name, size: file.size, time: Date.now() }]);
+      setUploadingFile(null);
     } catch (err) {
       console.error('Upload failed:', err);
+      setUploadingFile(null);
     }
   }, []);
 
@@ -308,6 +313,25 @@ function ChatApp() {
                 placeholder="How can I help you today?"
               />
 
+              {/* Uploaded files indicator */}
+              {(uploadingFile || uploadedFiles.length > 0) && (
+                <div className="uploaded-files-bar">
+                  {uploadingFile && (
+                    <div className="uploaded-file-chip uploading">
+                      <span className="material-symbols-outlined spinning">progress_activity</span>
+                      <span>Uploading {uploadingFile}…</span>
+                    </div>
+                  )}
+                  {uploadedFiles.map((f) => (
+                    <div className="uploaded-file-chip" key={f.time}>
+                      <span className="material-symbols-outlined">description</span>
+                      <span>{f.name}</span>
+                      <span className="uploaded-file-check material-symbols-outlined">check_circle</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <StarterCards onCardClick={handleCardClick} cards={starterCards} />
             </div>
           </section>
@@ -332,6 +356,25 @@ function ChatApp() {
                 ) : null}
               </div>
             </div>
+
+            {/* Uploaded files indicator in chat view */}
+            {(uploadingFile || uploadedFiles.length > 0) && (
+              <div className="uploaded-files-bar chat-view">
+                {uploadingFile && (
+                  <div className="uploaded-file-chip uploading">
+                    <span className="material-symbols-outlined spinning">progress_activity</span>
+                    <span>Uploading {uploadingFile}…</span>
+                  </div>
+                )}
+                {uploadedFiles.map((f) => (
+                  <div className="uploaded-file-chip" key={f.time}>
+                    <span className="material-symbols-outlined">description</span>
+                    <span>{f.name}</span>
+                    <span className="uploaded-file-check material-symbols-outlined">check_circle</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <ChatInput
               variant="footer"

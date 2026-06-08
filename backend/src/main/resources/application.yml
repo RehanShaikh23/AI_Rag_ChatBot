@@ -88,8 +88,8 @@ app:
 
   # ---- RAG Settings ----
   rag:
-    chunk-size: 800
-    chunk-overlap: 100
+    chunk-size: 400
+    chunk-overlap: 50
     max-results: 3
     similarity-threshold: 0.6
 
