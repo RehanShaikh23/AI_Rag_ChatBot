@@ -9,10 +9,11 @@ import { api, getToken } from './client';
  * @param {number|null} conversationId - null to auto-create
  * @param {string} message
  * @param {boolean} useRag
+ * @param {number|null} activeDocumentId - scopes RAG to this document
  * @returns {Promise<ChatResponse>}
  */
-export async function sendMessage(conversationId, message, useRag = true) {
-  return api.post('/chat', { conversationId, message, useRag });
+export async function sendMessage(conversationId, message, useRag = true, activeDocumentId = null) {
+  return api.post('/chat', { conversationId, message, useRag, activeDocumentId });
 }
 
 /**
@@ -22,13 +23,27 @@ export async function sendMessage(conversationId, message, useRag = true) {
  * @param {number|null} conversationId
  * @param {string} message
  * @param {boolean} useRag
+ * @param {number|null} activeDocumentId - scopes RAG to this document
  * @param {function} onToken  - called with each text token
  * @param {function} onDone   - called when stream completes, receives { conversationId }
  * @param {function} onError  - called on error
  * @returns {function} abort - call to cancel the stream
  */
-export function streamMessage(conversationId, message, useRag = true, onToken, onDone, onError) {
+export function streamMessage(conversationId, message, useRag = true, activeDocumentId = null, onToken, onDone, onError) {
   const controller = new AbortController();
+  let doneEmitted = false;
+  let accumulatedText = '';
+
+  // Safety timeout: if no data arrives in 120 seconds, treat as error
+  let lastActivityTime = Date.now();
+  const TIMEOUT_MS = 120_000;
+  const timeoutCheck = setInterval(() => {
+    if (Date.now() - lastActivityTime > TIMEOUT_MS && !doneEmitted) {
+      clearInterval(timeoutCheck);
+      controller.abort();
+      onError?.(new Error('Stream timeout — no data received'));
+    }
+  }, 5000);
 
   (async () => {
     try {
@@ -38,7 +53,7 @@ export function streamMessage(conversationId, message, useRag = true, onToken, o
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${getToken()}`,
         },
-        body: JSON.stringify({ conversationId, message, useRag }),
+        body: JSON.stringify({ conversationId, message, useRag, activeDocumentId }),
         signal: controller.signal,
       });
 
@@ -55,6 +70,7 @@ export function streamMessage(conversationId, message, useRag = true, onToken, o
         const { done, value } = await reader.read();
         if (done) break;
 
+        lastActivityTime = Date.now();
         buffer += decoder.decode(value, { stream: true });
 
         // Process SSE lines
@@ -62,40 +78,68 @@ export function streamMessage(conversationId, message, useRag = true, onToken, o
         buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
         for (const line of lines) {
+          // Support both 'data: ' and 'data:' formats (SseEmitter may omit space)
+          let data = null;
           if (line.startsWith('data: ')) {
-            const data = line.slice(6);
+            data = line.slice(6);
+          } else if (line.startsWith('data:')) {
+            data = line.slice(5);
+          } else {
+            continue;
+          }
 
-            if (data === '[DONE]') {
-              continue; // Next event has the conversationId
-            }
+          if (!data || data.trim() === '') continue;
 
-            // Check if it's metadata JSON
-            if (data.startsWith('{') && data.includes('conversationId')) {
-              try {
-                const meta = JSON.parse(data);
+          if (data === '[DONE]') {
+            continue; // Next event has the conversationId
+          }
+
+          if (data === '[ERROR]') {
+            throw new Error('Server encountered an error while generating the response');
+          }
+
+          // Check if it's metadata JSON
+          if (data.startsWith('{') && data.includes('conversationId')) {
+            try {
+              const meta = JSON.parse(data);
+              meta.accumulatedText = accumulatedText;
+              if (!doneEmitted) {
+                doneEmitted = true;
                 onDone?.(meta);
-              } catch {
-                // Not valid JSON, treat as token
-                onToken?.(data.replace(/\\n/g, '\n'));
               }
-            } else {
-              onToken?.(data.replace(/\\n/g, '\n'));
+            } catch {
+              // Not valid JSON, treat as token
+              const tokenText = data.replace(/\\n/g, '\n');
+              accumulatedText += tokenText;
+              onToken?.(tokenText);
             }
+          } else {
+            const tokenText = data.replace(/\\n/g, '\n');
+            accumulatedText += tokenText;
+            onToken?.(tokenText);
           }
         }
       }
 
       // If onDone wasn't called via metadata, call it now
-      onDone?.({});
+      if (!doneEmitted) {
+        doneEmitted = true;
+        onDone?.({ accumulatedText });
+      }
     } catch (err) {
       if (err.name !== 'AbortError') {
         onError?.(err);
       }
+    } finally {
+      clearInterval(timeoutCheck);
     }
   })();
 
   // Return abort function
-  return () => controller.abort();
+  return () => {
+    clearInterval(timeoutCheck);
+    controller.abort();
+  };
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { login as apiLogin, register as apiRegister } from '../api/auth';
 import { useAuth } from '../contexts/AuthContext';
+import chatBotLogo from '../assets/chatbot-logo.png';
 
 /**
  * Claude-inspired Login/Register page.
@@ -15,6 +16,7 @@ export default function AuthModal() {
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
@@ -45,16 +47,15 @@ export default function AuthModal() {
     <div className="auth-page">
       <main className="auth-page-inner">
         {/* Logo */}
-        <div className="auth-logo-area">
-          <svg
+        {/* <div className="auth-logo-area">
+          <img
+            src={chatBotLogo}
             className="auth-logo-icon"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-label="AI ChatBot Logo"
-          >
-            <path d="M12 2L2 22h4.5l2.5-5h6l2.5 5H22L12 2zm-1.5 12.5L12 11l1.5 3.5h-3z" />
-          </svg>
-        </div>
+            alt="AI ChatBot Logo"
+            width="48"
+            height="48"
+          />
+        </div> */}
 
         {/* Card */}
         <div className="auth-card">
@@ -102,17 +103,30 @@ export default function AuthModal() {
 
             <div className="auth-input-group">
               <label htmlFor="password" className="sr-only">Password</label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Password"
-                required
-                minLength={6}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                className="auth-input"
-              />
+              <div className="auth-password-wrapper">
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Password"
+                  required
+                  minLength={6}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  className="auth-input auth-input-password"
+                />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  tabIndex={-1}
+                >
+                  <span className="material-symbols-outlined">
+                    {showPassword ? 'visibility_off' : 'visibility'}
+                  </span>
+                </button>
+              </div>
             </div>
 
             <button

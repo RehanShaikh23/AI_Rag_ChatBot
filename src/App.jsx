@@ -10,7 +10,7 @@ import StarterCards from './components/StarterCards';
 import { UserMessage, BotMessage, TypingIndicator, StreamingBotMessage } from './components/ChatMessage';
 import { sendMessage, streamMessage, getMessages } from './api/chat';
 import { getConversations, deleteConversation } from './api/conversations';
-import { uploadDocument } from './api/documents';
+import { uploadDocument, getDocumentStatus } from './api/documents';
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -59,6 +59,7 @@ function ChatApp() {
   const [greeting] = useState(getGreeting);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [uploadingFile, setUploadingFile] = useState(null);
+  const [activeDocumentId, setActiveDocumentId] = useState(null);
 
   const threadRef = useRef(null);
   const abortStreamRef = useRef(null);
@@ -104,81 +105,14 @@ function ChatApp() {
     return () => document.removeEventListener('keydown', handleEsc);
   }, []);
 
-  // ---- Send message (streaming) ----
-  const handleSendMessage = useCallback(async (text) => {
-    const trimmed = text?.trim();
-    if (!trimmed || isTyping) return;
-
-    // Switch to chat view
-    if (view !== 'active-chat') {
-      setView('active-chat');
-      setActiveNav('');
-    }
-
-    // Add user message
-    const userMsg = { id: Date.now(), type: 'user', text: trimmed };
-    setMessages((prev) => [...prev, userMsg]);
-    setInputValue('');
-    setIsTyping(true);
-    setStreamingText('');
-
-    // Start streaming response
-    const abort = streamMessage(
-      activeConversationId,
-      trimmed,
-      true,
-      // onToken
-      (token) => {
-        setStreamingText((prev) => prev + token);
-      },
-      // onDone
-      (meta) => {
-        setStreamingText((prev) => {
-          const finalText = prev;
-          // Move streaming text to a permanent message
-          const codeBlock = extractCodeBlock(finalText);
-          const botMsg = {
-            id: Date.now() + 1,
-            type: 'bot',
-            text: finalText,
-            code: codeBlock,
-          };
-          setMessages((msgs) => [...msgs, botMsg]);
-          return '';
-        });
-
-        setIsTyping(false);
-
-        // Update conversation ID
-        if (meta?.conversationId) {
-          setActiveConversationId(meta.conversationId);
-        }
-
-        // Refresh sidebar conversations
-        loadConversations();
-      },
-      // onError
-      (err) => {
-        console.error('Stream error:', err);
-        setIsTyping(false);
-        setStreamingText('');
-
-        // Fallback: try synchronous request
-        handleSendSync(trimmed);
-      }
-    );
-
-    abortStreamRef.current = abort;
-  }, [isTyping, view, activeConversationId, loadConversations]);
-
-  // ---- Fallback synchronous send ----
+  // ---- Synchronous send (also used as fallback when streaming fails) ----
   const handleSendSync = useCallback(async (text) => {
     try {
       setIsTyping(true);
-      const response = await sendMessage(activeConversationId, text);
+      const response = await sendMessage(activeConversationId, text, true, activeDocumentId);
 
       const botMsg = {
-        id: response.messageId || Date.now(),
+        id: response.messageId || (Date.now() + Math.random()),
         type: 'bot',
         text: response.content,
         code: response.codeBlock,
@@ -190,10 +124,11 @@ function ChatApp() {
       }
 
       loadConversations();
+      setTimeout(() => loadConversations(), 1500);
     } catch (err) {
       console.error('Chat error:', err);
       const errorMsg = {
-        id: Date.now(),
+        id: Date.now() + Math.random(),
         type: 'bot',
         text: `Sorry, I encountered an error: ${err.message}. Please try again.`,
       };
@@ -201,7 +136,82 @@ function ChatApp() {
     } finally {
       setIsTyping(false);
     }
-  }, [activeConversationId, loadConversations]);
+  }, [activeConversationId, activeDocumentId, loadConversations]);
+
+  // ---- Send message (streaming, with sync fallback) ----
+  const handleSendMessage = useCallback(async (text) => {
+    const trimmed = text?.trim();
+    if (!trimmed || isTyping) return;
+
+    // Switch to chat view
+    if (view !== 'active-chat') {
+      setView('active-chat');
+      setActiveNav('');
+    }
+
+    // Add user message optimistically
+    const userMsg = { id: Date.now(), type: 'user', text: trimmed };
+    setMessages((prev) => [...prev, userMsg]);
+    setInputValue('');
+    setIsTyping(true);
+    setStreamingText('');
+
+    // Start streaming response
+    const abort = streamMessage(
+      activeConversationId,
+      trimmed,
+      true,
+      activeDocumentId,
+      // onToken
+      (token) => {
+        setStreamingText((prev) => prev + token);
+      },
+      // onDone — append final AI message to state immediately
+      (meta) => {
+        const finalText = meta?.accumulatedText || '';
+        const codeBlock = extractCodeBlock(finalText);
+        const botMsg = {
+          id: Date.now() + 1,
+          type: 'bot',
+          text: finalText,
+          code: codeBlock,
+        };
+        setMessages((msgs) => [...msgs, botMsg]);
+        setStreamingText('');
+        setIsTyping(false);
+
+        // Update conversation ID
+        if (meta?.conversationId) {
+          setActiveConversationId(meta.conversationId);
+        }
+
+        // Refresh sidebar conversations.
+        loadConversations();
+        setTimeout(() => loadConversations(), 1500);
+      },
+      // onError — fall back to synchronous request
+      (err) => {
+        console.error('Stream error, falling back to sync:', err);
+        setIsTyping(false);
+        setStreamingText('');
+
+        // Call sync fallback safely
+        try {
+          handleSendSync(trimmed);
+        } catch (syncErr) {
+          console.error('Sync fallback also failed:', syncErr);
+          setIsTyping(false);
+          setMessages((prev) => [...prev, {
+            id: Date.now() + Math.random(),
+            type: 'bot',
+            text: 'Sorry, something went wrong. Please try again.',
+          }]);
+        }
+      }
+    );
+
+    abortStreamRef.current = abort;
+  }, [isTyping, view, activeConversationId, activeDocumentId, loadConversations, handleSendSync]);
 
   // ---- Load a conversation from sidebar ----
   const loadConversation = useCallback(async (convId) => {
@@ -238,6 +248,8 @@ function ChatApp() {
     setIsTyping(false);
     setStreamingText('');
     setActiveConversationId(null);
+    setActiveDocumentId(null);
+    setUploadedFiles([]);
     setView('new-chat');
     setActiveNav('new-chat');
     setSidebarOpen(false);
@@ -267,9 +279,54 @@ function ChatApp() {
   const handleFileUpload = useCallback(async (file) => {
     try {
       setUploadingFile(file.name);
-      await uploadDocument(file);
-      setUploadedFiles((prev) => [...prev, { name: file.name, size: file.size, time: Date.now() }]);
+      const result = await uploadDocument(file);
+      // Track the newly uploaded document as the active one for RAG queries
+      const docId = result?.id || result?.data?.id || null;
+      const newFile = {
+        name: file.name,
+        size: file.size,
+        time: Date.now(),
+        id: docId,
+        status: 'PROCESSING', // Start as processing (async backend task)
+        errorMessage: null,
+      };
+      if (docId) {
+        setActiveDocumentId(docId);
+        console.log('Active document set to:', docId);
+      }
+      setUploadedFiles((prev) => [...prev, newFile]);
       setUploadingFile(null);
+
+      // Poll for processing status until COMPLETED or FAILED
+      if (docId) {
+        const pollInterval = setInterval(async () => {
+          try {
+            const docStatus = await getDocumentStatus(docId);
+            if (!docStatus) return;
+
+            if (docStatus.status === 'COMPLETED' || docStatus.status === 'FAILED') {
+              clearInterval(pollInterval);
+              setUploadedFiles((prev) =>
+                prev.map((f) =>
+                  f.id === docId
+                    ? { ...f, status: docStatus.status, errorMessage: docStatus.errorMessage }
+                    : f
+                )
+              );
+              if (docStatus.status === 'FAILED') {
+                console.error('Document processing failed:', docStatus.errorMessage);
+              } else {
+                console.log('Document processing completed:', docId);
+              }
+            }
+          } catch (err) {
+            console.error('Status poll failed:', err);
+          }
+        }, 2000);
+
+        // Safety: stop polling after 2 minutes
+        setTimeout(() => clearInterval(pollInterval), 120000);
+      }
     } catch (err) {
       console.error('Upload failed:', err);
       setUploadingFile(null);
@@ -310,6 +367,7 @@ function ChatApp() {
                 onChange={setInputValue}
                 onSend={handleSend}
                 onFileUpload={handleFileUpload}
+                disabled={isTyping}
                 placeholder="How can I help you today?"
               />
 
@@ -323,10 +381,24 @@ function ChatApp() {
                     </div>
                   )}
                   {uploadedFiles.map((f) => (
-                    <div className="uploaded-file-chip" key={f.time}>
-                      <span className="material-symbols-outlined">description</span>
+                    <div
+                      className={`uploaded-file-chip ${f.status === 'FAILED' ? 'failed' : ''}`}
+                      key={f.time}
+                      title={f.status === 'FAILED' ? `Error: ${f.errorMessage || 'Processing failed'}` : ''}
+                    >
+                      <span className="material-symbols-outlined">
+                        {f.status === 'FAILED' ? 'error' : 'description'}
+                      </span>
                       <span>{f.name}</span>
-                      <span className="uploaded-file-check material-symbols-outlined">check_circle</span>
+                      {f.status === 'COMPLETED' && (
+                        <span className="uploaded-file-check material-symbols-outlined">check_circle</span>
+                      )}
+                      {f.status === 'PROCESSING' && (
+                        <span className="material-symbols-outlined spinning">progress_activity</span>
+                      )}
+                      {f.status === 'FAILED' && (
+                        <span className="uploaded-file-error">Failed</span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -367,12 +439,34 @@ function ChatApp() {
                   </div>
                 )}
                 {uploadedFiles.map((f) => (
-                  <div className="uploaded-file-chip" key={f.time}>
-                    <span className="material-symbols-outlined">description</span>
+                  <div
+                    className={`uploaded-file-chip ${f.status === 'FAILED' ? 'failed' : ''}`}
+                    key={f.time}
+                    title={f.status === 'FAILED' ? `Error: ${f.errorMessage || 'Processing failed'}` : ''}
+                  >
+                    <span className="material-symbols-outlined">
+                      {f.status === 'FAILED' ? 'error' : 'description'}
+                    </span>
                     <span>{f.name}</span>
-                    <span className="uploaded-file-check material-symbols-outlined">check_circle</span>
+                    {f.status === 'COMPLETED' && (
+                      <span className="uploaded-file-check material-symbols-outlined">check_circle</span>
+                    )}
+                    {f.status === 'PROCESSING' && (
+                      <span className="material-symbols-outlined spinning">progress_activity</span>
+                    )}
+                    {f.status === 'FAILED' && (
+                      <span className="uploaded-file-error">Failed</span>
+                    )}
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Warning banner for failed documents */}
+            {uploadedFiles.some((f) => f.id === activeDocumentId && f.status === 'FAILED') && (
+              <div className="document-warning-banner">
+                <span className="material-symbols-outlined">warning</span>
+                <span>The active document failed to process. The AI cannot access its content. Please re-upload the file.</span>
               </div>
             )}
 
@@ -382,6 +476,7 @@ function ChatApp() {
               onChange={setInputValue}
               onSend={handleSend}
               onFileUpload={handleFileUpload}
+              disabled={isTyping}
               placeholder="Reply to AI ChatBot..."
             />
           </section>

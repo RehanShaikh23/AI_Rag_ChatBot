@@ -1,18 +1,17 @@
 package com.ragchatbot.ai;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -21,7 +20,6 @@ import java.util.stream.Collectors;
  * and similarity search for context retrieval.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class RagService {
 
@@ -33,11 +31,21 @@ public class RagService {
     @Value("${app.rag.chunk-overlap:100}")
     private int chunkOverlap;
 
-    @Value("${app.rag.max-results:5}")
+    @Value("${app.rag.max-results:10}")
     private int maxResults;
 
-    @Value("${app.rag.similarity-threshold:0.7}")
+    @Value("${app.rag.similarity-threshold:0.1}")
     private double similarityThreshold;
+
+    @Value("${app.rag.max-embedding-tokens:512}")
+    private int maxEmbeddingTokens;
+
+    @Value("${app.rag.full-doc-chunk-threshold:15}")
+    private int fullDocChunkThreshold;
+
+    public RagService(VectorStore vectorStore) {
+        this.vectorStore = vectorStore;
+    }
 
     /**
      * Ingest a document: parse → split into chunks → embed → store in vector DB.
@@ -55,10 +63,43 @@ public class RagService {
         List<Document> rawDocs = reader.get();
         log.debug("Parsed {} raw document sections", rawDocs.size());
 
+        if (rawDocs.isEmpty()) {
+            log.warn("⚠️ Tika parsed 0 sections from '{}' — file may be empty or unsupported",
+                    resource.getFilename());
+            return 0;
+        }
+
+        // Log a preview of the parsed content to verify Tika is reading correctly
+        String preview = rawDocs.get(0).getText();
+        log.info("📄 Parsed content preview (first 200 chars): {}",
+                preview.substring(0, Math.min(preview.length(), 200)));
+
         // 2. Split into manageable chunks
         TokenTextSplitter splitter = new TokenTextSplitter(chunkSize, chunkOverlap, 5, 10000, true);
         List<Document> chunks = splitter.apply(rawDocs);
-        log.debug("Split into {} chunks", chunks.size());
+        log.info("✂️ Split into {} chunks (chunkSize={}, overlap={})", chunks.size(), chunkSize, chunkOverlap);
+
+        // 2b. Safety net — truncate any chunk that exceeds the embedding model's token limit.
+        //     TokenTextSplitter can occasionally produce slightly oversized chunks at boundaries.
+        for (Document chunk : chunks) {
+            String text = chunk.getText();
+            // Rough token estimate: ~4 chars per token for English text.
+            // If the chunk is suspiciously long, hard-truncate to be safe.
+            int estimatedTokens = text.length() / 4;
+            if (estimatedTokens > maxEmbeddingTokens) {
+                int safeCharLimit = maxEmbeddingTokens * 4;
+                // Truncate at the last space before the limit to avoid splitting mid-word
+                int truncateAt = text.lastIndexOf(' ', safeCharLimit);
+                if (truncateAt <= 0) truncateAt = safeCharLimit;
+                String truncated = text.substring(0, truncateAt);
+                log.warn("⚠️ Chunk exceeded {} estimated tokens ({} chars) — truncated to {} chars",
+                        maxEmbeddingTokens, text.length(), truncated.length());
+                chunk.getMetadata().put("truncated", "true");
+                // Create a new document with truncated text but same metadata
+                chunks.set(chunks.indexOf(chunk),
+                        new Document(chunk.getId(), truncated, chunk.getMetadata()));
+            }
+        }
 
         // 3. Add metadata to each chunk
         chunks.forEach(chunk -> {
@@ -67,39 +108,134 @@ public class RagService {
             chunk.getMetadata().put("fileName", resource.getFilename());
         });
 
-        // 4. Embed and store in vector DB
+        // 4. Store in vector DB — NvidiaEmbeddingModel.embed(Document) automatically
+        //    uses input_type="passage" for correct asymmetric embedding.
         vectorStore.add(chunks);
-        log.info("Stored {} chunks in vector store for document {}", chunks.size(), docId);
+        log.info("✅ Stored {} chunks in vector store for document {} (user {})",
+                chunks.size(), docId, userId);
 
         return chunks.size();
     }
 
     /**
-     * Search the vector store for chunks relevant to the user's query.
+     * Retrieve the FULL text of a document by concatenating all its chunks.
+     * Used for small documents (e.g. CVs) where we want the AI to see everything
+     * rather than relying on similarity search which may miss key details.
      *
-     * @param query  The user's question
-     * @param userId The user ID to scope the search
-     * @return Concatenated relevant text, or null if no relevant matches
+     * @param docId  The document ID to retrieve
+     * @param userId The user ID (for ownership verification in post-filter)
+     * @return Full document text, or null if no chunks found
      */
-    public String searchRelevantContext(String query, Long userId) {
-        log.debug("RAG search — query: '{}', user: {}", query.substring(0, Math.min(query.length(), 50)), userId);
+    public String getFullDocumentText(Long docId, Long userId) {
+        log.info("📄 Fetching FULL document text for doc {} (user {})", docId, userId);
 
         try {
+            // Fetch a large number of results to get all chunks
             SearchRequest searchRequest = SearchRequest.builder()
-                    .query(query)
-                    .topK(maxResults)
-                    .similarityThreshold(similarityThreshold)
-                    .filterExpression("userId == '" + userId + "'")
+                    .query("*")
+                    .topK(10000)
+                    .similarityThreshold(0.0)
                     .build();
 
-            List<Document> results = vectorStore.similaritySearch(searchRequest);
+            List<Document> allDocs = vectorStore.similaritySearch(searchRequest);
 
-            if (results == null || results.isEmpty()) {
-                log.debug("No relevant RAG results found");
+            if (allDocs == null || allDocs.isEmpty()) {
+                log.warn("⚠️ No chunks found in vector store at all");
                 return null;
             }
 
-            log.debug("Found {} relevant chunks", results.size());
+            // Filter by documentId and userId in-memory
+            List<Document> docChunks = allDocs.stream()
+                    .filter(d -> docId.toString().equals(d.getMetadata().get("documentId")))
+                    .filter(d -> userId.toString().equals(d.getMetadata().get("userId")))
+                    .collect(Collectors.toList());
+
+            if (docChunks.isEmpty()) {
+                log.warn("⚠️ No chunks found for document {} (user {})", docId, userId);
+                return null;
+            }
+
+            String fullText = docChunks.stream()
+                    .map(Document::getText)
+                    .collect(Collectors.joining("\n\n"));
+
+            String source = (String) docChunks.get(0).getMetadata().getOrDefault("fileName", "unknown");
+            log.info("✅ Retrieved {} chunks for full document text (source: '{}', total length: {})",
+                    docChunks.size(), source, fullText.length());
+
+            return "[Source: " + source + "]\n" + fullText;
+        } catch (Exception e) {
+            log.error("❌ Failed to fetch full document text: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Search the vector store for chunks relevant to the user's query,
+     * scoped to a specific document.
+     *
+     * @param query      The user's question
+     * @param userId     The user ID to scope the search
+     * @param documentId The document ID to scope the search (may be null to search all)
+     * @return Concatenated relevant text, or null if no relevant matches
+     */
+    public String searchRelevantContext(String query, Long userId, Long documentId) {
+        String queryPreview = query.substring(0, Math.min(query.length(), 80));
+        log.info("🔍 RAG search — query: '{}', user: {}, docId: {}", queryPreview, userId, documentId);
+
+        try {
+            // For SimpleVectorStore we fetch more results and filter in-memory,
+            // because it doesn't support native filter expressions.
+            boolean isSimpleStore = vectorStore instanceof SimpleVectorStore;
+            int fetchTopK = isSimpleStore ? maxResults * 5 : maxResults;
+            double fetchThreshold = isSimpleStore ? 0.0 : similarityThreshold;
+
+            SearchRequest.Builder builder = SearchRequest.builder()
+                    .query(query)
+                    .topK(fetchTopK)
+                    .similarityThreshold(fetchThreshold);
+
+            // PGVector supports native filter expressions
+            if (!isSimpleStore) {
+                if (documentId != null) {
+                    builder.filterExpression(
+                            "userId == '" + userId + "' && documentId == '" + documentId + "'");
+                } else {
+                    builder.filterExpression("userId == '" + userId + "'");
+                }
+            }
+
+            List<Document> results = vectorStore.similaritySearch(builder.build());
+
+            if (results == null || results.isEmpty()) {
+                log.warn("⚠️ RAG search returned 0 results for query: '{}' (threshold: {})",
+                        queryPreview, similarityThreshold);
+                return null;
+            }
+
+            // In-memory post-filtering for SimpleVectorStore
+            if (isSimpleStore) {
+                results = results.stream()
+                        .filter(d -> userId.toString().equals(d.getMetadata().get("userId")))
+                        .filter(d -> documentId == null ||
+                                documentId.toString().equals(d.getMetadata().get("documentId")))
+                        .limit(maxResults)
+                        .collect(Collectors.toList());
+
+                if (results.isEmpty()) {
+                    log.warn("⚠️ In-memory filter removed all results (userId: {}, docId: {})",
+                            userId, documentId);
+                    return null;
+                }
+            }
+
+            log.info("✅ RAG found {} relevant chunks", results.size());
+            results.forEach(doc -> {
+                String fileName = (String) doc.getMetadata().getOrDefault("fileName", "unknown");
+                String docIdMeta = (String) doc.getMetadata().getOrDefault("documentId", "?");
+                String textPreview = doc.getText().substring(0, Math.min(doc.getText().length(), 120));
+                log.info("  → source: '{}' (docId: {}), preview: {}...", fileName, docIdMeta, textPreview);
+            });
 
             return results.stream()
                     .map(doc -> {
@@ -108,9 +244,22 @@ public class RagService {
                     })
                     .collect(Collectors.joining("\n\n---\n\n"));
         } catch (Exception e) {
-            log.warn("RAG search failed (vector store may not be ready): {}", e.getMessage());
+            log.error("❌ RAG search FAILED — AI will respond WITHOUT document context. Error: {}",
+                    e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * Search the vector store for chunks relevant to the user's query.
+     * Searches across all documents for the user.
+     *
+     * @param query  The user's question
+     * @param userId The user ID to scope the search
+     * @return Concatenated relevant text, or null if no relevant matches
+     */
+    public String searchRelevantContext(String query, Long userId) {
+        return searchRelevantContext(query, userId, null);
     }
 
     /**
@@ -118,22 +267,32 @@ public class RagService {
      */
     public void deleteDocumentChunks(Long docId) {
         try {
-            // Spring AI VectorStore doesn't have a direct delete-by-metadata,
-            // so we search and delete by IDs
             SearchRequest searchRequest = SearchRequest.builder()
                     .query("*")
                     .topK(10000)
-                    .filterExpression("documentId == '" + docId + "'")
                     .build();
 
             List<Document> docs = vectorStore.similaritySearch(searchRequest);
             if (docs != null && !docs.isEmpty()) {
-                List<String> ids = docs.stream().map(Document::getId).collect(Collectors.toList());
-                vectorStore.delete(ids);
-                log.info("Deleted {} vector chunks for document {}", ids.size(), docId);
+                // Filter by documentId in-memory (works with any vector store)
+                List<String> ids = docs.stream()
+                        .filter(d -> docId.toString().equals(d.getMetadata().get("documentId")))
+                        .map(Document::getId)
+                        .collect(Collectors.toList());
+                if (!ids.isEmpty()) {
+                    vectorStore.delete(ids);
+                    log.info("Deleted {} vector chunks for document {}", ids.size(), docId);
+                }
             }
         } catch (Exception e) {
             log.warn("Failed to delete document chunks: {}", e.getMessage());
         }
+    }
+
+    /**
+     * @return The configured threshold below which docs are sent in full.
+     */
+    public int getFullDocChunkThreshold() {
+        return fullDocChunkThreshold;
     }
 }

@@ -14,6 +14,7 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import jakarta.servlet.DispatcherType;
 
 import java.io.IOException;
 
@@ -52,6 +53,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Allow this filter to run on ASYNC dispatches so that the SecurityContext
+     * is available when Tomcat finalises an SSE / Flux streaming response.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
     }
 
     private String extractJwtFromRequest(HttpServletRequest request) {

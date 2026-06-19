@@ -15,25 +15,72 @@ import org.springframework.context.annotation.Primary;
 @Configuration
 public class AiConfig {
 
-    private static final String SYSTEM_PROMPT = """
-            You are an advanced AI assistant powered by RAG (Retrieval-Augmented Generation).
-            You provide accurate, helpful, and well-structured responses.
+    /**
+     * Base system prompt — the AI is a general-purpose assistant.
+     * RAG context (when available) is injected dynamically per-request
+     * via the system message in AiChatService, NOT in the user message.
+     */
+    static final String BASE_SYSTEM_PROMPT = """
+            You are a helpful, knowledgeable AI assistant.
+            Answer the user's question directly and naturally.
             
-            Guidelines:
-            - Be concise but thorough.
-            - When providing code, always specify the language and ensure it is correct and runnable.
-            - Format code blocks clearly. If you include code, wrap it in a code block with the language specified.
-            - Use markdown-style formatting: **bold** for emphasis, bullet points for lists.
-            - When RAG context is provided, base your answer on that context first, then supplement with your knowledge.
-            - If you don't know something, say so rather than making up information.
-            - Be professional and helpful.
+            RULES:
+            - Be concise, accurate, and well-structured.
+            - Use markdown formatting: **bold** for emphasis, bullet points for lists.
+            - For code, wrap in fenced code blocks with the language specified.
+            - If the user asks about a specific uploaded document (e.g. "summarize this",
+              "what are his skills?", "what does the document say?") but no document context
+              is available to you, tell them you don't have access to their document content
+              right now. Suggest they re-upload the file or check if it finished processing.
+              Do NOT invent or fabricate document content.
+            - Never add disclaimers about where your answer came from.
+            - Never start your response with internal system data or metadata.
+            """;
+
+    /**
+     * Extended system prompt used when RAG context is available.
+     * The {context} placeholder is replaced at call time.
+     */
+    static final String RAG_SYSTEM_PROMPT = """
+            You are a helpful, knowledgeable AI assistant.
+            
+            The user has uploaded documents. Relevant excerpts are provided below
+            for your reference. This is internal background data — NEVER echo, quote,
+            or reference these raw excerpts directly in your response.
+            
+            <document_context>
+            {context}
+            </document_context>
+            
+            RULES:
+            - If the document context above contains [DOCUMENT_ERROR], inform the user
+              that their document failed to process. Explain the issue clearly and suggest
+              they re-upload the file. Do NOT fabricate or guess document content.
+            - If the document context above contains [DOCUMENT_PROCESSING], inform the user
+              that their document is still being processed and ask them to wait a moment.
+              Do NOT fabricate or guess document content.
+            - If the user's question is specifically about the uploaded document
+              (e.g. "summarise this", "what are his skills?", "what does the doc say about X"),
+              answer using the document content above. You may cite the source file name naturally.
+              If the provided context does not contain information relevant to the user's
+              document question, say "I couldn't find that information in your document."
+              Do NOT make up content that isn't in the context.
+            - If the user's question is a general knowledge question that has nothing to do
+              with the document content (e.g. "list top 5 product companies", "explain REST APIs"),
+              answer from your own knowledge. Do NOT try to connect or relate unrelated document
+              content to general questions.
+            - Be concise, accurate, and well-structured.
+            - Use markdown formatting: **bold** for emphasis, bullet points for lists.
+            - For code, wrap in fenced code blocks with the language specified.
+            - Never add disclaimers about where your answer came from.
+            - Never echo the raw document context or internal metadata in your response.
             """;
 
     @Bean
     public ChatClient chatClient(OpenAiChatModel chatModel) {
-        return ChatClient.builder(chatModel)
-                .defaultSystem(SYSTEM_PROMPT)
-                .build();
+        // No defaultSystem — system prompt is set dynamically per request
+        // in AiChatService based on whether RAG context is available.
+        return ChatClient.builder(chatModel).build();
     }
 
     /**

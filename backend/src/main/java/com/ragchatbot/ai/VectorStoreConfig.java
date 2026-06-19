@@ -19,8 +19,10 @@ public class VectorStoreConfig {
     @Bean
     @ConditionalOnMissingBean(VectorStore.class)
     public VectorStore simpleVectorStore(EmbeddingModel embeddingModel) {
-        log.warn("PGVector not available — using in-memory SimpleVectorStore. " +
-                 "Data will not persist across restarts.");
+        log.error("🚨 PGVector NOT available — using in-memory SimpleVectorStore. " +
+                 "Data will NOT persist across restarts. " +
+                 "Metadata filter expressions (e.g. userId filter) will be IGNORED. " +
+                 "To fix: run 'docker-compose up -d' in the backend directory.");
         return SimpleVectorStore.builder(embeddingModel).build();
     }
 }

@@ -28,3 +28,15 @@ export async function getDocuments(page = 0, size = 20) {
 export async function deleteDocument(id) {
   return api.delete(`/documents/${id}`);
 }
+
+/**
+ * Poll for a specific document's processing status.
+ * Fetches the documents list and finds the matching document by ID.
+ * @param {number} docId
+ * @returns {Promise<DocumentDto|null>}
+ */
+export async function getDocumentStatus(docId) {
+  const page = await getDocuments(0, 50);
+  const docs = page?.content || page || [];
+  return docs.find((d) => d.id === docId) || null;
+}

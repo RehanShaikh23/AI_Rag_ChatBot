@@ -10,12 +10,16 @@ export default defineConfig({
         target: 'http://localhost:8081',
         changeOrigin: true,
         secure: false,
-        // SSE streaming support
+        // Disable proxy-level buffering for SSE streams
         configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
             if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
-              proxyRes.headers['cache-control'] = 'no-cache';
+              // Disable buffering at every layer
+              proxyRes.headers['cache-control'] = 'no-cache, no-transform';
               proxyRes.headers['connection'] = 'keep-alive';
+              proxyRes.headers['x-accel-buffering'] = 'no'; // nginx/reverse proxy
+              // Remove content-length to force chunked transfer
+              delete proxyRes.headers['content-length'];
             }
           });
         },
@@ -23,3 +27,4 @@ export default defineConfig({
     },
   },
 })
+

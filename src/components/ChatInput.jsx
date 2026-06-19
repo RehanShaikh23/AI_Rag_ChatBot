@@ -7,6 +7,7 @@ export default function ChatInput({
   onFileUpload,
   placeholder,
   variant, // 'landing' | 'footer'
+  disabled = false,
 }) {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -23,7 +24,7 @@ export default function ChatInput({
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSend();
+      if (!disabled) onSend();
     }
   };
 
@@ -53,7 +54,7 @@ export default function ChatInput({
 
   if (variant === 'landing') {
     return (
-      <div className="chat-input-landing">
+      <div className={`chat-input-landing${disabled ? ' chat-input-disabled' : ''}`}>
         {fileInput}
         <textarea
           ref={textareaRef}
@@ -62,13 +63,14 @@ export default function ChatInput({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           rows={2}
+          disabled={disabled}
           aria-label="Type your message"
         />
         <div className="chat-input-actions">
-          <button className="btn-icon" aria-label="Upload a document for RAG" onClick={handleFileClick}>
+          <button className="btn-icon" aria-label="Upload a document for RAG" onClick={handleFileClick} disabled={disabled}>
             <span className="material-symbols-outlined">attach_file</span>
           </button>
-          <button className="btn-send" aria-label="Send message" onClick={onSend}>
+          <button className="btn-send" aria-label="Send message" onClick={onSend} disabled={disabled}>
             <span className="material-symbols-outlined">arrow_upward</span>
           </button>
         </div>
@@ -81,8 +83,8 @@ export default function ChatInput({
     <div className="chat-input-footer">
       {fileInput}
       <div className="chat-input-footer-inner">
-        <div className="chat-input-bar">
-          <button className="btn-icon" aria-label="Upload a document for RAG" onClick={handleFileClick}>
+        <div className={`chat-input-bar${disabled ? ' chat-input-disabled' : ''}`}>
+          <button className="btn-icon" aria-label="Upload a document for RAG" onClick={handleFileClick} disabled={disabled}>
             <span className="material-symbols-outlined">attach_file</span>
           </button>
           <textarea
@@ -90,11 +92,12 @@ export default function ChatInput({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={placeholder}
+            placeholder={disabled ? 'AI is responding...' : placeholder}
             rows={1}
+            disabled={disabled}
             aria-label="Type your reply"
           />
-          <button className="btn-send" aria-label="Send message" onClick={onSend}>
+          <button className="btn-send" aria-label="Send message" onClick={onSend} disabled={disabled}>
             <span className="material-symbols-outlined">arrow_upward</span>
           </button>
         </div>

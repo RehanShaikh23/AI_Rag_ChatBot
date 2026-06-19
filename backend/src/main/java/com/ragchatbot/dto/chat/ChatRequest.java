@@ -21,4 +21,10 @@ public class ChatRequest {
      * Whether to include RAG context from uploaded documents.
      */
     private boolean useRag = true;
+
+    /**
+     * If set, scopes the RAG search to this specific document only.
+     * If null, the most recently uploaded document is used.
+     */
+    private Long activeDocumentId;
 }

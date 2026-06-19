@@ -13,8 +13,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -37,22 +38,61 @@ public class ChatController {
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Send a message and receive a streamed AI response via SSE")
-    public Flux<String> streamMessage(
+    public ResponseBodyEmitter streamMessage(
             @Valid @RequestBody ChatRequest request,
             Authentication authentication) {
+
+        // 5-minute timeout — long enough for large responses
+        ResponseBodyEmitter emitter = new ResponseBodyEmitter(300_000L);
 
         ChatService.StreamContext ctx = chatService.prepareStream(request, authentication.getName());
         StringBuilder fullResponse = new StringBuilder();
 
-        return ctx.stream()
-                .doOnNext(token -> fullResponse.append(token))
-                .map(token -> "data: " + token.replace("\n", "\\n") + "\n\n")
-                .concatWith(Flux.defer(() -> {
-                    // Save the completed response after stream ends
-                    chatService.saveStreamedResponse(ctx.conversationId(), fullResponse.toString());
-                    return Flux.just("data: [DONE]\n\ndata: {\"conversationId\":" + ctx.conversationId() + "}\n\n");
-                }))
-                .doOnError(e -> log.error("Stream error: {}", e.getMessage()));
+        // ResponseBodyEmitter writes raw bytes and flushes after each send().
+        // We manually format SSE events ("data: ...\n\n") to preserve spaces
+        // in tokens — SseEmitter's event().data() strips the first space per SSE spec.
+        ctx.stream().subscribe(
+                // onNext — send each token as an SSE event immediately
+                token -> {
+                    try {
+                        fullResponse.append(token);
+                        String escapedToken = token.replace("\n", "\\n");
+                        emitter.send("data: " + escapedToken + "\n\n", MediaType.TEXT_PLAIN);
+                    } catch (IOException e) {
+                        log.warn("SSE send failed (client likely disconnected): {}", e.getMessage());
+                        emitter.completeWithError(e);
+                    }
+                },
+                // onError — signal the error and close the connection
+                error -> {
+                    log.error("Stream error: {}", error.getMessage());
+                    try {
+                        emitter.send("data: [ERROR]\n\n", MediaType.TEXT_PLAIN);
+                    } catch (IOException ignored) {}
+                    emitter.completeWithError(error);
+                },
+                // onComplete — save response, send metadata, close cleanly
+                () -> {
+                    try {
+                        chatService.saveStreamedResponse(ctx.conversationId(), fullResponse.toString());
+                        emitter.send("data: [DONE]\n\n", MediaType.TEXT_PLAIN);
+                        emitter.send("data: {\"conversationId\":" + ctx.conversationId() + "}\n\n",
+                                     MediaType.TEXT_PLAIN);
+                        emitter.complete();
+                    } catch (IOException e) {
+                        log.warn("SSE completion failed: {}", e.getMessage());
+                        emitter.completeWithError(e);
+                    }
+                }
+        );
+
+        // Clean up if the client disconnects early
+        emitter.onTimeout(() -> {
+            log.warn("SSE emitter timed out for conversation {}", ctx.conversationId());
+            emitter.complete();
+        });
+
+        return emitter;
     }
 
     @GetMapping("/{conversationId}/messages")
@@ -64,3 +104,4 @@ public class ChatController {
         return ResponseEntity.ok(ApiResponse.ok(messages));
     }
 }
+

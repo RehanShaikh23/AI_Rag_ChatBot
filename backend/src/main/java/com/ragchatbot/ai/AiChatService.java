@@ -33,16 +33,17 @@ public class AiChatService {
      * @return The AI-generated response text
      */
     public String chat(String prompt, List<Message> conversationHistory, String ragContext) {
-        log.debug("AI chat request — prompt length: {}, history size: {}, RAG: {}",
-                prompt.length(), conversationHistory.size(), ragContext != null);
+        log.debug("AI chat request — prompt length: {}, history size: {}, RAG context: {}",
+                prompt.length(), conversationHistory.size(), ragContext != null ? "yes" : "no");
 
-        String augmentedPrompt = buildPrompt(prompt, ragContext);
+        String systemPrompt = getSystemPrompt(ragContext);
 
         try {
             long startTime = System.currentTimeMillis();
             String response = chatClient.prompt()
+                    .system(systemPrompt)
                     .messages(conversationHistory)
-                    .user(augmentedPrompt)
+                    .user(prompt)  // raw user question — never modified
                     .call()
                     .content();
 
@@ -64,16 +65,18 @@ public class AiChatService {
      * @return A Flux of string tokens
      */
     public Flux<String> streamChat(String prompt, List<Message> conversationHistory, String ragContext) {
-        log.debug("AI stream request — prompt length: {}, history size: {}", prompt.length(), conversationHistory.size());
+        log.debug("AI stream request — prompt length: {}, history size: {}, RAG context: {}",
+                prompt.length(), conversationHistory.size(), ragContext != null ? "yes" : "no");
 
-        String augmentedPrompt = buildPrompt(prompt, ragContext);
+        String systemPrompt = getSystemPrompt(ragContext);
 
         try {
             long startTime = System.currentTimeMillis();
             java.util.concurrent.atomic.AtomicBoolean firstToken = new java.util.concurrent.atomic.AtomicBoolean(true);
             return chatClient.prompt()
+                    .system(systemPrompt)
                     .messages(conversationHistory)
-                    .user(augmentedPrompt)
+                    .user(prompt)  // raw user question — never modified
                     .stream()
                     .content()
                     .doOnNext(token -> {
@@ -109,22 +112,16 @@ public class AiChatService {
     }
 
     /**
-     * Augment the user prompt with RAG context if available.
+     * Select the appropriate system prompt based on whether RAG context exists.
+     * When context is available, it is embedded inside the system prompt
+     * (hidden from the user) — NOT in the user message.
      */
-    private String buildPrompt(String prompt, String ragContext) {
+    private String getSystemPrompt(String ragContext) {
         if (ragContext == null || ragContext.isBlank()) {
-            return prompt;
+            // No documents or no relevant results — use base prompt
+            return AiConfig.BASE_SYSTEM_PROMPT;
         }
-        return """
-                Use the following context retrieved from uploaded documents to answer the question.
-                If the context is not relevant, use your own knowledge but mention that the answer
-                is not based on the uploaded documents.
-                
-                --- RETRIEVED CONTEXT ---
-                %s
-                --- END CONTEXT ---
-                
-                User question: %s
-                """.formatted(ragContext, prompt);
+        // Inject document context into the RAG system prompt
+        return AiConfig.RAG_SYSTEM_PROMPT.replace("{context}", ragContext);
     }
 }

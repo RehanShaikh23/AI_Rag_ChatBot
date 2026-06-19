@@ -1,5 +1,6 @@
 package com.ragchatbot.service;
 
+import com.ragchatbot.ai.DocumentProcessor;
 import com.ragchatbot.ai.RagService;
 import com.ragchatbot.dto.document.DocumentDto;
 import com.ragchatbot.entity.Document;
@@ -8,11 +9,8 @@ import com.ragchatbot.entity.User;
 import com.ragchatbot.repository.DocumentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,6 +28,7 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final RagService ragService;
     private final AuthService authService;
+    private final DocumentProcessor documentProcessor;
 
     /**
      * Upload and process a document for RAG.
@@ -50,48 +49,12 @@ public class DocumentService {
                 .build();
         document = documentRepository.save(document);
 
-        // Process asynchronously
+        // Capture bytes before the MultipartFile is closed, then
+        // delegate to a separate bean so @Async + @Transactional work correctly.
         byte[] fileBytes = file.getBytes();
-        processDocumentAsync(document.getId(), fileBytes, file.getOriginalFilename(), user.getId());
+        documentProcessor.processAsync(document.getId(), fileBytes, file.getOriginalFilename(), user.getId());
 
         return toDto(document);
-    }
-
-    /**
-     * Async document processing: parse → chunk → embed → store.
-     */
-    @Async
-    @Transactional
-    public void processDocumentAsync(Long documentId, byte[] fileBytes, String fileName, Long userId) {
-        log.info("Processing document {} asynchronously", documentId);
-
-        Document document = documentRepository.findById(documentId)
-                .orElseThrow(() -> new RuntimeException("Document not found: " + documentId));
-
-        try {
-            document.setStatus(DocumentStatus.PROCESSING);
-            documentRepository.save(document);
-
-            Resource resource = new ByteArrayResource(fileBytes) {
-                @Override
-                public String getFilename() {
-                    return fileName;
-                }
-            };
-
-            int chunkCount = ragService.ingestDocument(resource, userId, documentId);
-
-            document.setChunkCount(chunkCount);
-            document.setStatus(DocumentStatus.COMPLETED);
-            documentRepository.save(document);
-
-            log.info("Document {} processed successfully — {} chunks", documentId, chunkCount);
-        } catch (Exception e) {
-            log.error("Document processing failed for {}: {}", documentId, e.getMessage(), e);
-            document.setStatus(DocumentStatus.FAILED);
-            document.setErrorMessage(e.getMessage());
-            documentRepository.save(document);
-        }
     }
 
     /**
@@ -118,6 +81,38 @@ public class DocumentService {
         log.info("Deleted document {} for user {}", documentId, user.getId());
     }
 
+    /**
+     * Get the ID of the user's most recently uploaded (completed) document.
+     * Returns null if no completed documents exist.
+     */
+    @Transactional(readOnly = true)
+    public Long getLatestDocumentId(Long userId) {
+        return documentRepository
+                .findFirstByUserIdAndStatusOrderByCreatedAtDesc(userId, Document.DocumentStatus.COMPLETED)
+                .map(Document::getId)
+                .orElse(null);
+    }
+
+    /**
+     * Get the chunk count for a specific document.
+     * Returns 0 if document not found.
+     */
+    @Transactional(readOnly = true)
+    public int getDocumentChunkCount(Long documentId) {
+        return documentRepository.findById(documentId)
+                .map(doc -> doc.getChunkCount() != null ? doc.getChunkCount() : 0)
+                .orElse(0);
+    }
+
+    /**
+     * Get a document entity by ID (for status checks).
+     * Returns null if not found.
+     */
+    @Transactional(readOnly = true)
+    public Document getDocumentEntity(Long documentId) {
+        return documentRepository.findById(documentId).orElse(null);
+    }
+
     private DocumentDto toDto(Document doc) {
         return DocumentDto.builder()
                 .id(doc.getId())
@@ -131,3 +126,4 @@ public class DocumentService {
                 .build();
     }
 }
+

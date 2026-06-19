@@ -7,6 +7,8 @@ import com.ragchatbot.dto.chat.ChatResponse;
 import com.ragchatbot.entity.ChatMessage;
 import com.ragchatbot.entity.ChatMessage.MessageRole;
 import com.ragchatbot.entity.Conversation;
+import com.ragchatbot.entity.Document;
+import com.ragchatbot.entity.Document.DocumentStatus;
 import com.ragchatbot.entity.User;
 import com.ragchatbot.repository.ChatMessageRepository;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ public class ChatService {
     private final RagService ragService;
     private final ConversationService conversationService;
     private final AuthService authService;
+    private final DocumentService documentService;
     private final ChatMessageRepository chatMessageRepository;
 
     private static final int MAX_CONTEXT_MESSAGES = 10;
@@ -41,6 +44,67 @@ public class ChatService {
     // Regex to detect code blocks in AI responses: ```lang\n...\n```
     private static final Pattern CODE_BLOCK_PATTERN =
             Pattern.compile("```(\\w+)?\\n([\\s\\S]*?)```", Pattern.MULTILINE);
+
+    /**
+     * Resolve the active document ID for RAG:
+     *  - If the request specifies one, use it.
+     *  - Otherwise, fall back to the user's most recently uploaded document.
+     */
+    private Long resolveActiveDocumentId(ChatRequest request, Long userId) {
+        if (request.getActiveDocumentId() != null) {
+            log.debug("Using client-specified activeDocumentId: {}", request.getActiveDocumentId());
+            return request.getActiveDocumentId();
+        }
+        Long latestId = documentService.getLatestDocumentId(userId);
+        log.debug("No activeDocumentId in request — resolved latest: {}", latestId);
+        return latestId;
+    }
+
+    /**
+     * Fetch RAG context, preferring full-document retrieval for small docs.
+     * Checks document processing status first to prevent hallucination on failed documents.
+     */
+    private String fetchRagContext(String message, Long userId, Long documentId) {
+        if (documentId == null) {
+            log.info("📭 No documents available — RAG context will be null");
+            return null;
+        }
+
+        // Check document processing status before attempting RAG lookup
+        Document doc = documentService.getDocumentEntity(documentId);
+        if (doc != null && doc.getStatus() == DocumentStatus.FAILED) {
+            log.warn("❌ Document {} has FAILED status — injecting error context", documentId);
+            String errorDetail = doc.getErrorMessage() != null ? doc.getErrorMessage() : "Unknown processing error";
+            return "[DOCUMENT_ERROR] The document '" + doc.getFileName()
+                    + "' failed to process and could not be indexed for search. "
+                    + "Error: " + errorDetail
+                    + ". The user should be informed that their document could not be processed.";
+        }
+        if (doc != null && doc.getStatus() != DocumentStatus.COMPLETED) {
+            log.info("⏳ Document {} is still {} — injecting processing context", documentId, doc.getStatus());
+            return "[DOCUMENT_PROCESSING] The document '" + doc.getFileName()
+                    + "' is still being processed (status: " + doc.getStatus()
+                    + "). The user should be asked to wait a moment and try again.";
+        }
+
+        int chunkCount = documentService.getDocumentChunkCount(documentId);
+        int threshold = ragService.getFullDocChunkThreshold();
+
+        if (chunkCount > 0 && chunkCount <= threshold) {
+            // Small document → send the full text so nothing is missed
+            log.info("📄 Document {} has {} chunks (≤ threshold {}) — using FULL document text",
+                    documentId, chunkCount, threshold);
+            String fullText = ragService.getFullDocumentText(documentId, userId);
+            if (fullText != null) {
+                return fullText;
+            }
+            // Fall through to similarity search if full-text fetch fails
+            log.warn("⚠️ Full-text fetch returned null — falling back to similarity search");
+        }
+
+        // Large document or fallback → use similarity search scoped to this document
+        return ragService.searchRelevantContext(message, userId, documentId);
+    }
 
     /**
      * Send a message synchronously and get the full AI response.
@@ -75,13 +139,15 @@ public class ChatService {
             conversationService.autoGenerateTitle(conversation.getId(), request.getMessage());
         }
 
-        // 4. Build conversation history + RAG context IN PARALLEL
+        // 4. Resolve active document + build context IN PARALLEL
+        Long activeDocId = resolveActiveDocumentId(request, user.getId());
+
         CompletableFuture<List<ChatMessage>> historyFuture = CompletableFuture.supplyAsync(() ->
                 chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId()));
 
         CompletableFuture<String> ragFuture = CompletableFuture.supplyAsync(() ->
                 request.isUseRag()
-                        ? ragService.searchRelevantContext(request.getMessage(), user.getId())
+                        ? fetchRagContext(request.getMessage(), user.getId(), activeDocId)
                         : null);
 
         // Wait for both to complete
@@ -136,8 +202,10 @@ public class ChatService {
     /**
      * Stream a response via SSE. The user message is saved before streaming;
      * the assistant message is saved after the stream completes.
+     * NOTE: NOT @Transactional — the Flux is consumed AFTER this method returns,
+     * so a transaction here would close prematurely. Each DB operation manages
+     * its own transaction instead.
      */
-    @Transactional
     public StreamContext prepareStream(ChatRequest request, String userEmail) {
         User user = authService.getUserByEmail(userEmail);
 
@@ -163,13 +231,15 @@ public class ChatService {
             conversationService.autoGenerateTitle(conversation.getId(), request.getMessage());
         }
 
-        // Build context + RAG IN PARALLEL
+        // Resolve active document + build context IN PARALLEL
+        Long activeDocId = resolveActiveDocumentId(request, user.getId());
+
         CompletableFuture<List<ChatMessage>> historyFuture = CompletableFuture.supplyAsync(() ->
                 chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId()));
 
         CompletableFuture<String> ragFuture = CompletableFuture.supplyAsync(() ->
                 request.isUseRag()
-                        ? ragService.searchRelevantContext(request.getMessage(), user.getId())
+                        ? fetchRagContext(request.getMessage(), user.getId(), activeDocId)
                         : null);
 
         List<ChatMessage> historyEntities = historyFuture.join();

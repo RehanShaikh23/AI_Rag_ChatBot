@@ -437,8 +437,95 @@
 .message-avatar.user-avatar { background: var(--surface-variant); }
 .message-avatar.user-avatar .material-symbols-outlined { font-size: 20px; color: var(--on-surface-variant); }
 
-.message-avatar.bot-avatar { background: var(--primary-container); border-radius: var(--radius-lg); }
+.message-avatar.bot-avatar { background: transparent; border-radius: var(--radius-lg); }
 .message-avatar.bot-avatar .material-symbols-outlined { font-size: 20px; color: var(--on-primary); font-variation-settings: 'FILL' 1; }
+
+.bot-avatar-img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  display: block;
+}
+
+/* ---- ChatBot Logo Animations (active during response generation) ---- */
+.chatbot-logo {
+  transition: filter 0.3s ease, transform 0.3s ease;
+}
+
+.chatbot-logo--animated {
+  animation: botPulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.5));
+}
+
+.chatbot-logo--animated .bot-antenna-ball {
+  animation: antennaBounce 1s ease-in-out infinite;
+  transform-origin: 32px 10px;
+}
+
+.chatbot-logo--animated .bot-pupil-left {
+  animation: pupilLookLeft 2.4s ease-in-out infinite;
+}
+
+.chatbot-logo--animated .bot-pupil-right {
+  animation: pupilLookRight 2.4s ease-in-out infinite;
+}
+
+.chatbot-logo--animated .bot-eye {
+  animation: eyeBlink 3s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.chatbot-logo--animated .bot-ear-left {
+  animation: earPulseLeft 1.6s ease-in-out infinite;
+}
+
+.chatbot-logo--animated .bot-ear-right {
+  animation: earPulseRight 1.6s ease-in-out infinite 0.8s;
+}
+
+.chatbot-logo--animated .bot-head {
+  fill: url(#botGradActive);
+}
+
+@keyframes botPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@keyframes antennaBounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes pupilLookLeft {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1.5px); }
+  75% { transform: translateX(1.5px); }
+}
+
+@keyframes pupilLookRight {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1.5px); }
+  75% { transform: translateX(1.5px); }
+}
+
+@keyframes eyeBlink {
+  0%, 42%, 46%, 100% { transform: scaleY(1); }
+  44% { transform: scaleY(0.1); }
+}
+
+@keyframes earPulseLeft {
+  0%, 100% { opacity: 1; transform: translateX(0); }
+  50% { opacity: 0.7; transform: translateX(-1px); }
+}
+
+@keyframes earPulseRight {
+  0%, 100% { opacity: 1; transform: translateX(0); }
+  50% { opacity: 0.7; transform: translateX(1px); }
+}
 
 .message-body {
   display: flex;
@@ -690,7 +777,10 @@
 .auth-logo-icon {
   width: 48px;
   height: 48px;
-  fill: var(--on-surface);
+  object-fit: contain;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  border-radius: var(--radius-lg);
   transition: transform var(--transition-smooth);
 }
 
@@ -785,6 +875,42 @@
 .auth-input:focus {
   border-color: #d97757;
   box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.15);
+}
+
+/* ---- Password Toggle ---- */
+.auth-password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-input-password {
+  padding-right: 48px;
+}
+
+.auth-password-toggle {
+  position: absolute;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--outline);
+  cursor: pointer;
+  transition: color var(--transition-normal), background var(--transition-normal);
+}
+
+.auth-password-toggle:hover {
+  color: #d97757;
+  background: rgba(217, 119, 87, 0.08);
+}
+
+.auth-password-toggle .material-symbols-outlined {
+  font-size: 20px;
 }
 
 /* ---- CTA Button (Coral) ---- */
@@ -985,6 +1111,31 @@
 }
 
 /* ============================================================
+   Chat Input Disabled State (while streaming)
+   ============================================================ */
+.chat-input-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity var(--transition-normal);
+}
+
+.chat-input-disabled textarea {
+  cursor: not-allowed;
+}
+
+.btn-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ============================================================
    Inline Code
    ============================================================ */
 .inline-code {
@@ -1158,4 +1309,43 @@
 
 .spinning {
   animation: spinning 1s linear infinite;
+}
+
+/* Failed document chip */
+.uploaded-file-chip.failed {
+  border-color: var(--error, #d32f2f);
+  background: rgba(211, 47, 47, 0.06);
+}
+
+.uploaded-file-chip.failed .material-symbols-outlined {
+  color: var(--error, #d32f2f) !important;
+}
+
+.uploaded-file-error {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--error, #d32f2f);
+  letter-spacing: 0.02em;
+}
+
+/* Warning banner for failed documents */
+.document-warning-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  padding: 10px var(--space-md);
+  background: rgba(211, 47, 47, 0.08);
+  border: 1px solid rgba(211, 47, 47, 0.25);
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--error, #d32f2f);
+  animation: fadeSlideUp 0.3s ease forwards;
+}
+
+.document-warning-banner .material-symbols-outlined {
+  font-size: 18px;
+  flex-shrink: 0;
 }

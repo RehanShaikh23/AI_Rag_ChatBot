@@ -89,9 +89,10 @@ app:
   # ---- RAG Settings ----
   rag:
     chunk-size: 400
-    chunk-overlap: 50
-    max-results: 3
-    similarity-threshold: 0.6
+    chunk-overlap: 100
+    max-results: 10
+    similarity-threshold: 0.1
+    full-doc-chunk-threshold: 15   # docs with ≤ this many chunks → send full text
 
   # ---- CORS ----
   cors:

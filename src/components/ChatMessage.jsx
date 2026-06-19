@@ -1,4 +1,5 @@
 import CodeBlock from './CodeBlock';
+import ChatBotLogo from './ChatBotLogo';
 
 function formatText(text) {
   if (!text) return null;
@@ -55,7 +56,7 @@ export function BotMessage({ text, code }) {
   return (
     <div className="message">
       <div className="message-avatar bot-avatar">
-        <span className="material-symbols-outlined icon-fill">smart_toy</span>
+        <ChatBotLogo size={32} className="bot-avatar-img" />
       </div>
       <div className="message-body">
         <span className="message-sender">AI ChatBot</span>
@@ -77,7 +78,7 @@ export function StreamingBotMessage({ text }) {
   return (
     <div className="message streaming">
       <div className="message-avatar bot-avatar">
-        <span className="material-symbols-outlined icon-fill">smart_toy</span>
+        <ChatBotLogo size={32} className="bot-avatar-img" animated />
       </div>
       <div className="message-body">
         <span className="message-sender">AI ChatBot</span>
@@ -95,7 +96,7 @@ export function TypingIndicator() {
   return (
     <div className="typing-indicator">
       <div className="message-avatar bot-avatar">
-        <span className="material-symbols-outlined icon-fill">smart_toy</span>
+        <ChatBotLogo size={32} className="bot-avatar-img" animated />
       </div>
       <div className="message-body">
         <span className="message-sender">AI ChatBot</span>

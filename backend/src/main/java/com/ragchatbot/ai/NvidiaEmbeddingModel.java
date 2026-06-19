@@ -18,6 +18,12 @@ import java.util.Map;
  * NVIDIA's asymmetric embedding models (e.g., nv-embedqa-e5-v5) require
  * an {@code input_type} parameter ("query" or "passage") that Spring AI's
  * built-in OpenAI client doesn't send. This wrapper adds it.
+ * <p>
+ * The input_type is resolved automatically:
+ * <ul>
+ *   <li>{@link #embed(Document)} → {@code "passage"} (called by VectorStore.add)</li>
+ *   <li>{@link #embed(String)}   → {@code "query"}   (called by VectorStore.similaritySearch)</li>
+ * </ul>
  */
 @Slf4j
 public class NvidiaEmbeddingModel implements EmbeddingModel {
@@ -40,7 +46,13 @@ public class NvidiaEmbeddingModel implements EmbeddingModel {
     @Override
     public EmbeddingResponse call(EmbeddingRequest request) {
         List<String> inputs = request.getInstructions();
-        String inputType = "query"; // Works for both search and ingest
+
+        // Determine input_type from EmbeddingOptions if provided,
+        // otherwise default to "query" (search-time behavior).
+        String inputType = "query";
+        if (request.getOptions() instanceof NvidiaEmbeddingOptions opts) {
+            inputType = opts.getInputType();
+        }
 
         log.debug("NVIDIA embedding request — {} inputs, input_type: {}", inputs.size(), inputType);
 
@@ -61,7 +73,7 @@ public class NvidiaEmbeddingModel implements EmbeddingModel {
                 .body(Map.class);
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("⚡ NVIDIA embedding time: {}ms — {} inputs", elapsed, inputs.size());
+        log.info("⚡ NVIDIA embedding time: {}ms — {} inputs, input_type: {}", elapsed, inputs.size(), inputType);
 
         // Parse response
         @SuppressWarnings("unchecked")
@@ -82,14 +94,25 @@ public class NvidiaEmbeddingModel implements EmbeddingModel {
         return new EmbeddingResponse(embeddings);
     }
 
+    /**
+     * Embed a document using input_type="passage".
+     * Called by VectorStore.add() when storing documents.
+     */
     @Override
     public float[] embed(Document document) {
-        return this.embed(document.getText());
+        EmbeddingResponse response = call(
+                new EmbeddingRequest(List.of(document.getText()), NvidiaEmbeddingOptions.PASSAGE));
+        return response.getResult().getOutput();
     }
 
+    /**
+     * Embed a query string using input_type="query".
+     * Called by VectorStore.similaritySearch() when searching.
+     */
     @Override
     public float[] embed(String text) {
-        EmbeddingResponse response = call(new EmbeddingRequest(List.of(text), null));
+        EmbeddingResponse response = call(
+                new EmbeddingRequest(List.of(text), NvidiaEmbeddingOptions.QUERY));
         return response.getResult().getOutput();
     }
 }
