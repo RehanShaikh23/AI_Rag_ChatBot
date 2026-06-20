@@ -12,9 +12,9 @@ spring:
 
   # ---- Database (PostgreSQL) ----
   datasource:
-    url: jdbc:postgresql://${DB_HOST:db.vgoyslpzebeqtvmyuspr.supabase.co}:${DB_PORT:5432}/${DB_NAME:postgres}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:Ai_Chat_Bot@23}
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -47,7 +47,7 @@ spring:
   # ---- Spring AI — NVIDIA NIM (OpenAI-compatible) ----
   ai:
     openai:
-      api-key: ${NVIDIA_API_KEY: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}
+      api-key: ${NVIDIA_API_KEY}
       base-url: https://integrate.api.nvidia.com
       chat:
         options:
@@ -71,7 +71,7 @@ spring:
 # ============================================================
 app:
   jwt:
-    secret: ${JWT_SECRET:f47ac10b58cc4372a5670e02b2c3d479a7f3e8b1c2d4e5f6a7b8c9d0e1f2a3b4}
+    secret: ${JWT_SECRET}
     expiration-ms: 86400000       # 24 hours
     refresh-expiration-ms: 604800000  # 7 days
 
