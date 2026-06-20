@@ -96,7 +96,7 @@ app:
 
   # ---- CORS ----
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:3000
+    allowed-origins: http://localhost:5173,https://ai-rag-chat-bot.vercel.app/
     allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
     allowed-headers: "*"
     allow-credentials: true
