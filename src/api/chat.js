@@ -2,7 +2,7 @@
    Chat API — Send messages, stream responses, get history
    ============================================================ */
 
-import { api, getToken } from './client';
+import { api, getToken, BASE_URL } from './client';
 
 /**
  * Send a message and get a complete AI response.
@@ -47,7 +47,7 @@ export function streamMessage(conversationId, message, useRag = true, activeDocu
 
   (async () => {
     try {
-      const response = await fetch('/api/chat/stream', {
+      const response = await fetch(`${BASE_URL}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

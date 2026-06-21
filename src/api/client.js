@@ -2,7 +2,7 @@
    API Client — Centralized HTTP client with JWT auth
    ============================================================ */
 
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+export const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 /**
  * Get the stored JWT token.

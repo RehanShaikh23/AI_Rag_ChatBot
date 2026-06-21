@@ -124,7 +124,8 @@ function ChatApp() {
       }
 
       loadConversations();
-      setTimeout(() => loadConversations(), 1500);
+      setTimeout(() => loadConversations(), 2000);
+      setTimeout(() => loadConversations(), 5000);
     } catch (err) {
       console.error('Chat error:', err);
       const errorMsg = {
@@ -186,8 +187,11 @@ function ChatApp() {
         }
 
         // Refresh sidebar conversations.
+        // Auto-generated titles are @Async on the backend, so retry a few times
+        // to catch late title updates (especially on slow hosting like Render free tier).
         loadConversations();
-        setTimeout(() => loadConversations(), 1500);
+        setTimeout(() => loadConversations(), 2000);
+        setTimeout(() => loadConversations(), 5000);
       },
       // onError — fall back to synchronous request
       (err) => {
