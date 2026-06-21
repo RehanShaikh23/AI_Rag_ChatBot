@@ -5,13 +5,12 @@
 
 # ---- Stage 1: Build ----
 FROM eclipse-temurin:21-jdk-alpine AS builder
+RUN apk add --no-cache maven
 WORKDIR /build
 
 # Cache Maven dependencies
 COPY pom.xml .
-COPY .mvn/ .mvn/
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn dependency:go-offline -B 2>/dev/null || true
+RUN mvn dependency:go-offline -B 2>/dev/null || true
 
 # Copy source and build
 COPY src/ src/
