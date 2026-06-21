@@ -77,7 +77,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleRuntime(RuntimeException ex) {
         log.error("Runtime error: {}", ex.getMessage(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error("INTERNAL_ERROR", ex.getMessage()));
+                .body(ApiResponse.error("INTERNAL_ERROR", "An internal error occurred. Please try again."));
     }
 
     @ExceptionHandler(Exception.class)

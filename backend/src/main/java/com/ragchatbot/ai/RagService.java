@@ -121,6 +121,9 @@ public class RagService {
      * Retrieve the FULL text of a document by concatenating all its chunks.
      * Used for small documents (e.g. CVs) where we want the AI to see everything
      * rather than relying on similarity search which may miss key details.
+     * <p>
+     * When PGVector is available, uses native filter expressions to push filtering
+     * to the database. Falls back to in-memory filtering for SimpleVectorStore.
      *
      * @param docId  The document ID to retrieve
      * @param userId The user ID (for ownership verification in post-filter)
@@ -130,25 +133,36 @@ public class RagService {
         log.info("📄 Fetching FULL document text for doc {} (user {})", docId, userId);
 
         try {
-            // Fetch a large number of results to get all chunks
-            SearchRequest searchRequest = SearchRequest.builder()
-                    .query("*")
-                    .topK(10000)
-                    .similarityThreshold(0.0)
-                    .build();
+            boolean isSimpleStore = vectorStore instanceof SimpleVectorStore;
 
-            List<Document> allDocs = vectorStore.similaritySearch(searchRequest);
+            SearchRequest.Builder builder = SearchRequest.builder()
+                    .query("document content")  // Neutral query for broad match
+                    .topK(isSimpleStore ? 10000 : 500)  // PGVector: reasonable limit; Simple: fetch all
+                    .similarityThreshold(0.0);
 
-            if (allDocs == null || allDocs.isEmpty()) {
-                log.warn("⚠️ No chunks found in vector store at all");
+            // PGVector supports native filter expressions — push filtering to the DB
+            if (!isSimpleStore) {
+                builder.filterExpression(
+                        "userId == '" + userId + "' && documentId == '" + docId + "'");
+            }
+
+            List<Document> results = vectorStore.similaritySearch(builder.build());
+
+            if (results == null || results.isEmpty()) {
+                log.warn("⚠️ No chunks found in vector store for doc {} (user {})", docId, userId);
                 return null;
             }
 
-            // Filter by documentId and userId in-memory
-            List<Document> docChunks = allDocs.stream()
-                    .filter(d -> docId.toString().equals(d.getMetadata().get("documentId")))
-                    .filter(d -> userId.toString().equals(d.getMetadata().get("userId")))
-                    .collect(Collectors.toList());
+            // In-memory post-filter only needed for SimpleVectorStore
+            List<Document> docChunks;
+            if (isSimpleStore) {
+                docChunks = results.stream()
+                        .filter(d -> docId.toString().equals(d.getMetadata().get("documentId")))
+                        .filter(d -> userId.toString().equals(d.getMetadata().get("userId")))
+                        .collect(Collectors.toList());
+            } else {
+                docChunks = results;
+            }
 
             if (docChunks.isEmpty()) {
                 log.warn("⚠️ No chunks found for document {} (user {})", docId, userId);

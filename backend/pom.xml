@@ -117,6 +117,12 @@
             <version>${springdoc.version}</version>
         </dependency>
 
+        <!-- ===== Monitoring / Actuator ===== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <!-- ===== Rate Limiting ===== -->
         <dependency>
             <groupId>com.bucket4j</groupId>

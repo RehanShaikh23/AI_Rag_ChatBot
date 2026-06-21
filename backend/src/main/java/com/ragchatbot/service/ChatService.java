@@ -1,5 +1,7 @@
 package com.ragchatbot.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ragchatbot.ai.AiChatService;
 import com.ragchatbot.ai.RagService;
 import com.ragchatbot.dto.chat.ChatRequest;
@@ -11,15 +13,17 @@ import com.ragchatbot.entity.Document;
 import com.ragchatbot.entity.Document.DocumentStatus;
 import com.ragchatbot.entity.User;
 import com.ragchatbot.repository.ChatMessageRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -28,7 +32,6 @@ import java.util.regex.Pattern;
  * save user message → RAG lookup → AI call → save response → return.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ChatService {
 
@@ -38,6 +41,26 @@ public class ChatService {
     private final AuthService authService;
     private final DocumentService documentService;
     private final ChatMessageRepository chatMessageRepository;
+    private final Executor chatExecutor;
+    private final ObjectMapper objectMapper;
+
+    public ChatService(AiChatService aiChatService,
+                       RagService ragService,
+                       ConversationService conversationService,
+                       AuthService authService,
+                       DocumentService documentService,
+                       ChatMessageRepository chatMessageRepository,
+                       @Qualifier("chatExecutor") Executor chatExecutor,
+                       ObjectMapper objectMapper) {
+        this.aiChatService = aiChatService;
+        this.ragService = ragService;
+        this.conversationService = conversationService;
+        this.authService = authService;
+        this.documentService = documentService;
+        this.chatMessageRepository = chatMessageRepository;
+        this.chatExecutor = chatExecutor;
+        this.objectMapper = objectMapper;
+    }
 
     private static final int MAX_CONTEXT_MESSAGES = 10;
 
@@ -143,12 +166,14 @@ public class ChatService {
         Long activeDocId = resolveActiveDocumentId(request, user.getId());
 
         CompletableFuture<List<ChatMessage>> historyFuture = CompletableFuture.supplyAsync(() ->
-                chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId()));
+                chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId()),
+                chatExecutor);
 
         CompletableFuture<String> ragFuture = CompletableFuture.supplyAsync(() ->
                 request.isUseRag()
                         ? fetchRagContext(request.getMessage(), user.getId(), activeDocId)
-                        : null);
+                        : null,
+                chatExecutor);
 
         // Wait for both to complete
         List<ChatMessage> historyEntities = historyFuture.join();
@@ -235,12 +260,14 @@ public class ChatService {
         Long activeDocId = resolveActiveDocumentId(request, user.getId());
 
         CompletableFuture<List<ChatMessage>> historyFuture = CompletableFuture.supplyAsync(() ->
-                chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId()));
+                chatMessageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId()),
+                chatExecutor);
 
         CompletableFuture<String> ragFuture = CompletableFuture.supplyAsync(() ->
                 request.isUseRag()
                         ? fetchRagContext(request.getMessage(), user.getId(), activeDocId)
-                        : null);
+                        : null,
+                chatExecutor);
 
         List<ChatMessage> historyEntities = historyFuture.join();
         String ragContext = ragFuture.join();
@@ -317,23 +344,21 @@ public class ChatService {
     }
 
     private String serializeCodeBlock(ChatResponse.CodeBlock cb) {
-        return "{\"lang\":\"" + cb.getLang() + "\",\"content\":\"" +
-                cb.getContent().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"}";
+        try {
+            return objectMapper.writeValueAsString(
+                    Map.of("lang", cb.getLang(), "content", cb.getContent()));
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize code block: {}", e.getMessage());
+            return null;
+        }
     }
 
     private ChatResponse.CodeBlock deserializeCodeBlock(String json) {
         try {
-            // Simple JSON parse for code block
-            int langStart = json.indexOf("\"lang\":\"") + 8;
-            int langEnd = json.indexOf("\"", langStart);
-            int contentStart = json.indexOf("\"content\":\"") + 11;
-            int contentEnd = json.lastIndexOf("\"");
-            if (langStart > 7 && contentStart > 10) {
-                String lang = json.substring(langStart, langEnd);
-                String content = json.substring(contentStart, contentEnd)
-                        .replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
-                return ChatResponse.CodeBlock.builder().lang(lang).content(content).build();
-            }
+            var node = objectMapper.readTree(json);
+            String lang = node.has("lang") ? node.get("lang").asText() : "text";
+            String content = node.has("content") ? node.get("content").asText() : "";
+            return ChatResponse.CodeBlock.builder().lang(lang).content(content).build();
         } catch (Exception e) {
             log.warn("Failed to deserialize code block: {}", e.getMessage());
         }

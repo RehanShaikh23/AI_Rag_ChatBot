@@ -24,7 +24,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
@@ -118,6 +118,7 @@ logging:
 # Swagger / OpenAPI
 # ============================================================
 springdoc:
+  enabled: ${SWAGGER_ENABLED:false}
   api-docs:
     path: /api-docs
   swagger-ui:
@@ -125,3 +126,16 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: alpha
   default-produces-media-type: application/json
+
+# ============================================================
+# Actuator / Monitoring
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+

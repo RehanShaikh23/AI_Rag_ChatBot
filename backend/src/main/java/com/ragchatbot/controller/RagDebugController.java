@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -20,6 +21,7 @@ import java.util.Map;
  * Use this to test similarity search independently from the chat flow.
  * Requires authentication (same JWT as chat endpoints).
  */
+@Profile("dev")
 @RestController
 @RequestMapping("/api/debug/rag")
 @RequiredArgsConstructor
